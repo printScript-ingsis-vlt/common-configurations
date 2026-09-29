@@ -1,2 +1,2 @@
 # common-workflows
-Repositorio encargado de centralizar los workflows comunes entre los diferentes repositorios de la organización
+Repositorio encargado de centralizar los workflows, hooks y otras configuraciones comunes entre los diferentes repositorios de la organización
