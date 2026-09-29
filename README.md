@@ -20,5 +20,5 @@ on:
 
 jobs:
   check:
-    uses: common-configurations/.github/workflows/<nombre-del-archivovich>.yml@<version (v1)>
+    uses: common-configurations/.github/workflows/<nombre-del-archivovich>.yml@latest
 ```
