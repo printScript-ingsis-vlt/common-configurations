@@ -20,5 +20,5 @@ on:
 
 jobs:
   check:
-    uses: common-configurations/.github/workflows/<nombre-del-archivovich>.yml@latest
+    uses: printScript-ingsis-vlt/common-configurations/.github/workflows/check.yml@main
 ```
