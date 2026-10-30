@@ -1,4 +1,122 @@
-name: notify.yml
+name: Notify infrastructure
+
 on:
+  workflow_call:
+    inputs:
+      service:
+        description: Service that published the image.
+        required: true
+        type: string
+      environment:
+        description: Target environment. It must match the calling branch.
+        required: true
+        type: string
+      image:
+        description: Published image reference pinned to an immutable SHA-256 digest.
+        required: true
+        type: string
+      infra_repository:
+        description: Central repository that receives image-published events.
+        required: false
+        default: printscript-ingsis-vlt/snippet-searcher-infra
+        type: string
+    secrets:
+      INFRA_DISPATCH_TOKEN:
+        description: Fine-grained token or GitHub App token authorized to dispatch to the infrastructure repository.
+        required: true
+
+permissions: {}
 
 jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate notification inputs
+        shell: bash
+        env:
+          SERVICE: ${{ inputs.service }}
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          IMAGE: ${{ inputs.image }}
+          INFRA_REPOSITORY: ${{ inputs.infra_repository }}
+        run: |
+          set -euo pipefail
+
+          case "$TARGET_ENVIRONMENT" in
+            dev|prod) ;;
+            *)
+              echo "::error::environment must be 'dev' or 'prod'."
+              exit 1
+              ;;
+          esac
+
+          if [[ "$GITHUB_REF_TYPE" != "branch" || "$GITHUB_REF_NAME" != "$TARGET_ENVIRONMENT" ]]; then
+            echo "::error::The calling branch must match the target environment."
+            exit 1
+          fi
+
+          case "$SERVICE" in
+            snippet-service)
+              EXPECTED_IMAGE_REPOSITORY="ghcr.io/printscript-ingsis-vlt/snippet-service"
+              ;;
+            permissions)
+              EXPECTED_IMAGE_REPOSITORY="ghcr.io/printscript-ingsis-vlt/permissions"
+              ;;
+            print-script-engine)
+              EXPECTED_IMAGE_REPOSITORY="ghcr.io/printscript-ingsis-vlt/print-script-engine"
+              ;;
+            *)
+              echo "::error::Unknown service: $SERVICE"
+              exit 1
+              ;;
+          esac
+
+          if [[ "$IMAGE" != "${EXPECTED_IMAGE_REPOSITORY}@sha256:"* ]]; then
+            echo "::error::image must be an immutable digest for $SERVICE."
+            exit 1
+          fi
+
+          if [[ "$INFRA_REPOSITORY" != "printscript-ingsis-vlt/snippet-searcher-infra" ]]; then
+            echo "::error::Infrastructure repository is not allowed: $INFRA_REPOSITORY"
+            exit 1
+          fi
+
+      - name: Dispatch image-published event
+        shell: bash
+        env:
+          SERVICE: ${{ inputs.service }}
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          IMAGE: ${{ inputs.image }}
+          INFRA_REPOSITORY: ${{ inputs.infra_repository }}
+          INFRA_DISPATCH_TOKEN: ${{ secrets.INFRA_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          payload="$(jq -n \
+            --arg service "$SERVICE" \
+            --arg environment "$TARGET_ENVIRONMENT" \
+            --arg image "$IMAGE" \
+            --arg commit "$GITHUB_SHA" \
+            --arg source_repository "$GITHUB_REPOSITORY" \
+            --arg source_run_id "$GITHUB_RUN_ID" \
+            '{
+              event_type: "image-published",
+              client_payload: {
+                schema_version: 1,
+                service: $service,
+                environment: $environment,
+                image: $image,
+                commit: $commit,
+                source_repository: $source_repository,
+                source_run_id: $source_run_id
+              }
+            }')"
+
+          curl --fail --silent --show-error \
+            --request POST \
+            --url "$GITHUB_API_URL/repos/$INFRA_REPOSITORY/dispatches" \
+            --header "Accept: application/vnd.github+json" \
+            --header "Content-Type: application/json" \
+            --header "Authorization: Bearer $INFRA_DISPATCH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2026-03-10" \
+            --data "$payload"
