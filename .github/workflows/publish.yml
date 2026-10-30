@@ -1,7 +1,37 @@
-name: Publish
+name: Publish Docker image
 
 on:
   workflow_call:
+    inputs:
+      image_repository:
+        description: Fully qualified, authorized GHCR repository for the service image.
+        required: true
+        type: string
+      docker_context:
+        description: Path to the Docker build context, relative to the repository root.
+        required: false
+        default: .
+        type: string
+      dockerfile:
+        description: Path to the Dockerfile, relative to the repository root.
+        required: false
+        default: ./Dockerfile
+        type: string
+      environment:
+        description: Target environment. It must match the calling branch.
+        required: true
+        type: string
+    secrets:
+      gpr_token:
+        description: Token used only by Docker builds that download private GitHub Packages dependencies.
+        required: false
+    outputs:
+      image:
+        description: Published image reference pinned to its immutable digest.
+        value: ${{ jobs.publish.outputs.image }}
+      tag:
+        description: Immutable SHA-based tag published alongside the image.
+        value: ${{ jobs.publish.outputs.tag }}
 
 permissions:
   contents: read
@@ -10,22 +40,109 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.reference }}
+      tag: ${{ steps.image.outputs.tag }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: gradle
-
-      - name: Run checks
-        run: ./gradlew check detekt test
-
-      - name: Publish packages
-        run: ./gradlew publish
+      - name: Validate publish inputs
+        shell: bash
         env:
-          GITHUB_ACTOR: ${{ github.actor }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          DOCKER_CONTEXT: ${{ inputs.docker_context }}
+          DOCKERFILE: ${{ inputs.dockerfile }}
+        run: |
+          set -euo pipefail
+
+          case "$TARGET_ENVIRONMENT" in
+            dev|prod) ;;
+            *)
+              echo "::error::environment must be 'dev' or 'prod'."
+              exit 1
+              ;;
+          esac
+
+          if [[ "$GITHUB_REF_TYPE" != "branch" ]]; then
+            echo "::error::Docker images can only be published from a branch."
+            exit 1
+          fi
+
+          if [[ "$GITHUB_REF_NAME" != "$TARGET_ENVIRONMENT" ]]; then
+            echo "::error::Branch '$GITHUB_REF_NAME' does not match environment '$TARGET_ENVIRONMENT'."
+            exit 1
+          fi
+
+          case "$IMAGE_REPOSITORY" in
+            ghcr.io/printscript-ingsis-vlt/snippet-service|\
+            ghcr.io/printscript-ingsis-vlt/permissions|\
+            ghcr.io/printscript-ingsis-vlt/print-script-engine) ;;
+            *)
+              echo "::error::Image repository is not allowed: $IMAGE_REPOSITORY"
+              exit 1
+              ;;
+          esac
+
+          if [[ ! -d "$DOCKER_CONTEXT" ]]; then
+            echo "::error::Docker context does not exist: $DOCKER_CONTEXT"
+            exit 1
+          fi
+
+          if [[ ! -f "$DOCKERFILE" ]]; then
+            echo "::error::Dockerfile does not exist: $DOCKERFILE"
+            exit 1
+          fi
+
+          WORKSPACE_PATH="$(realpath -e "$GITHUB_WORKSPACE")"
+          CONTEXT_PATH="$(realpath -e "$DOCKER_CONTEXT")"
+          DOCKERFILE_PATH="$(realpath -e "$DOCKERFILE")"
+
+          case "$CONTEXT_PATH/" in
+            "$WORKSPACE_PATH/"*) ;;
+            *)
+              echo "::error::Docker context must be inside the repository."
+              exit 1
+              ;;
+          esac
+
+          case "$DOCKERFILE_PATH" in
+            "$CONTEXT_PATH"/*) ;;
+            *)
+              echo "::error::Dockerfile must be inside the Docker context."
+              exit 1
+              ;;
+          esac
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and publish Docker image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.docker_context }}
+          file: ${{ inputs.dockerfile }}
+          push: true
+          tags: |
+            ${{ inputs.image_repository }}:${{ inputs.environment }}-${{ github.sha }}
+          build-args: |
+            GITHUB_USER=${{ github.actor }}
+          secrets: |
+            gpr_token=${{ secrets.gpr_token }}
+
+      - name: Expose immutable image reference
+        id: image
+        env:
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          echo "reference=${IMAGE_REPOSITORY}@${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "tag=${IMAGE_REPOSITORY}:${{ inputs.environment }}-${{ github.sha }}" >> "$GITHUB_OUTPUT"
