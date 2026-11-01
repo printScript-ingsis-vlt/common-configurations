@@ -34,16 +34,26 @@ Los pull requests ejecutan solamente la validación. La publicación de una imag
 
 | Workflow | Responsabilidad | Se ejecuta después de |
 |---|---|---|
-| `check.yml` | Ejecutar checks, Detekt y tests Gradle | Trigger del repositorio consumidor |
+| `check.yml` | Ejecutar validaciones Gradle o Node/Vite | Trigger del repositorio consumidor |
 | `publish.yml` | Construir y publicar una imagen Docker inmutable en GHCR | `check.yml` exitoso |
 | `notify.yml` | Enviar a infra el digest de la imagen publicada | `publish.yml` exitoso |
 
 ### `check.yml`
 
-Prepara Java 21 con cache de Gradle y ejecuta:
+Recibe el input opcional `project_type`. Su valor por defecto es `gradle`, por lo que los microservicios existentes no requieren cambios.
+
+Para `gradle`, prepara Java 21 con cache de Gradle y ejecuta:
 
 ```text
 ./gradlew check detekt test
+```
+
+Para `node`, prepara Node 20 con cache de npm y ejecuta:
+
+```text
+npm ci
+→ npm run lint
+→ npm run build
 ```
 
 ### `publish.yml`
@@ -72,6 +82,7 @@ Las imágenes autorizadas son:
 ghcr.io/printscript-ingsis-vlt/snippet-service
 ghcr.io/printscript-ingsis-vlt/permissions
 ghcr.io/printscript-ingsis-vlt/print-script-engine
+ghcr.io/printscript-ingsis-vlt/printscript-ui
 ```
 
 La imagen se etiqueta con branch y SHA completo del commit:
@@ -105,7 +116,7 @@ Inputs:
 
 | Input | Obligatorio | Default | Descripción |
 |---|---:|---|---|
-| `service` | Sí | — | `snippet-service`, `permissions` o `print-script-engine` |
+| `service` | Sí | — | `snippet-service`, `permissions`, `print-script-engine` o `printscript-ui` |
 | `environment` | Sí | — | `dev` o `prod` |
 | `image` | Sí | — | Output `image` de `publish.yml` |
 | `infra_repository` | No | `printscript-ingsis-vlt/snippet-searcher-infra` | Repo receptor |

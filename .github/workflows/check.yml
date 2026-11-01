@@ -2,6 +2,12 @@ name: Check
 
 on:
   workflow_call:
+    inputs:
+      project_type:
+        description: Build ecosystem to validate :).
+        required: false
+        default: gradle
+        type: string
 
 permissions:
   contents: read
@@ -13,7 +19,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Validate project type
+        shell: bash
+        env:
+          PROJECT_TYPE: ${{ inputs.project_type }}
+        run: |
+          set -euo pipefail
+
+          case "$PROJECT_TYPE" in
+            gradle|node) ;;
+            *)
+              echo "::error::project_type must be 'gradle' or 'node'."
+              exit 1
+              ;;
+          esac
+
       - name: Set up Java 21
+        if: inputs.project_type == 'gradle'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -21,4 +43,24 @@ jobs:
           cache: gradle
 
       - name: Run checks
+        if: inputs.project_type == 'gradle'
         run: ./gradlew check detekt test
+
+      - name: Set up Node 20
+        if: inputs.project_type == 'node'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        if: inputs.project_type == 'node'
+        run: npm ci
+
+      - name: Lint
+        if: inputs.project_type == 'node'
+        run: npm run lint
+
+      - name: Build
+        if: inputs.project_type == 'node'
+        run: npm run build

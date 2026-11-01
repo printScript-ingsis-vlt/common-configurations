@@ -79,7 +79,8 @@ jobs:
           case "$IMAGE_REPOSITORY" in
             ghcr.io/printscript-ingsis-vlt/snippet-service|\
             ghcr.io/printscript-ingsis-vlt/permissions|\
-            ghcr.io/printscript-ingsis-vlt/print-script-engine) ;;
+            ghcr.io/printscript-ingsis-vlt/print-script-engine|\
+            ghcr.io/printscript-ingsis-vlt/printscript-ui) ;;
             *)
               echo "::error::Image repository is not allowed: $IMAGE_REPOSITORY"
               exit 1

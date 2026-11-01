@@ -65,6 +65,9 @@ jobs:
             print-script-engine)
               EXPECTED_IMAGE_REPOSITORY="ghcr.io/printscript-ingsis-vlt/print-script-engine"
               ;;
+            printscript-ui)
+              EXPECTED_IMAGE_REPOSITORY="ghcr.io/printscript-ingsis-vlt/printscript-ui"
+              ;;
             *)
               echo "::error::Unknown service: $SERVICE"
               exit 1
