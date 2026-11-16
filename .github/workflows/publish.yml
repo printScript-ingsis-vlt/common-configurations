@@ -21,6 +21,11 @@ on:
         description: Target environment. It must match the calling branch.
         required: true
         type: string
+      docker_build_args:
+        description: Optional newline-separated public Docker build arguments for the service image.
+        required: false
+        default: ''
+        type: string
     secrets:
       gpr_token:
         description: Token used only by Docker builds that download private GitHub Packages dependencies.
@@ -135,6 +140,7 @@ jobs:
             ${{ inputs.image_repository }}:${{ inputs.environment }}-${{ github.sha }}
           build-args: |
             GITHUB_USER=${{ github.actor }}
+            ${{ inputs.docker_build_args }}
           secrets: |
             gpr_token=${{ secrets.gpr_token }}
 
